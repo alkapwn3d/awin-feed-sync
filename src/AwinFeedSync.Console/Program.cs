@@ -1,3 +1,4 @@
+using AwinFeedSync.Console;
 using AwinFeedSync.Core.Interfaces;
 using AwinFeedSync.Infrastructure.Awin;
 using AwinFeedSync.Infrastructure.Configuration;
@@ -11,19 +12,24 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 
-// Parse command line arguments
-bool runOnce = args.Contains("--run-once");
-int? advertiserId = GetIntArg(args, "--advertiser");
-bool dryRun = args.Contains("--dry-run");
-int? max = GetIntArg(args, "--max");
-
 var host = CreateHostBuilder(args).Build();
 
-using var scope = host.Services.CreateScope();
-var syncService = scope.ServiceProvider.GetRequiredService<FeedSyncService>();
+// Check if running as console (--console or --run-once flags)
+if (args.Contains("--console") || args.Contains("--run-once"))
+{
+    using var scope = host.Services.CreateScope();
+    var syncService = scope.ServiceProvider.GetRequiredService<FeedSyncService>();
+    
+    int? advertiserId = GetIntArg(args, "--advertiser");
+    bool dryRun = args.Contains("--dry-run");
+    int? max = GetIntArg(args, "--max");
+    
+    await syncService.RunSyncAsync(advertiserId, max, dryRun);
+    return 0;
+}
 
-await syncService.RunSyncAsync(advertiserId, max, dryRun);
-
+// Run as Windows Service
+await host.RunAsync();
 return 0;
 
 static int? GetIntArg(string[] args, string name)
@@ -36,6 +42,10 @@ static int? GetIntArg(string[] args, string name)
 
 static IHostBuilder CreateHostBuilder(string[] args) =>
     Host.CreateDefaultBuilder(args)
+        .UseWindowsService(options =>
+        {
+            options.ServiceName = "Awin Feed Sync Service";
+        })
         .UseSerilog((context, config) =>
         {
             config.ReadFrom.Configuration(context.Configuration);
@@ -66,4 +76,7 @@ static IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddScoped<ILinkBuilder, ComputedLinkBuilder>();
             services.AddScoped<IProductRepository, ProductRepository>();
             services.AddScoped<FeedSyncService>();
+            
+            // Add background worker for service mode
+            services.AddHostedService<SyncWorker>();
         });
