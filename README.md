@@ -87,29 +87,33 @@ Edit `appsettings.json`:
 
 ## Usage
 
-### Run Once
+### Console Mode (One-Time Execution)
 
 ```bash
-dotnet run --project src/AwinFeedSync.Console -- --run-once
+# Dry run - preview only, no changes
+dotnet run --project src/AwinFeedSync.Console -- --console --dry-run --max 1
+
+# Run once - process all advertisers
+dotnet run --project src/AwinFeedSync.Console -- --console --run-once
+
+# Process specific advertiser
+dotnet run --project src/AwinFeedSync.Console -- --console --advertiser 12345
+
+# Limit advertisers for testing
+dotnet run --project src/AwinFeedSync.Console -- --console --max 5
 ```
 
-### Process Specific Advertiser
+### Service Mode (Continuous Operation)
 
 ```bash
-dotnet run --project src/AwinFeedSync.Console -- --advertiser 12345
+# Run as background service (syncs every 6 hours)
+dotnet run --project src/AwinFeedSync.Console
+
+# Configure sync interval in appsettings.json:
+# "Service": { "SyncIntervalHours": 6 }
 ```
 
-### Dry Run (Preview Changes)
-
-```bash
-dotnet run --project src/AwinFeedSync.Console -- --dry-run
-```
-
-### Limit Advertisers (Testing)
-
-```bash
-dotnet run --project src/AwinFeedSync.Console -- --max 5
-```
+**Note:** Use `--console` flag for one-time execution. Without it, runs as a service.
 
 ## Scheduling
 
