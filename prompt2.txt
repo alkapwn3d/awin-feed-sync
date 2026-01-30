@@ -1,0 +1,168 @@
+You are Cursor. Build a .NET 8 C# console application that runs daily and syncs Awin product feed data for all advertisers (merchants) I’m approved for, storing products into PostgreSQL with change detection.
+
+Context
+- This is Awin (not ShareASale).
+- Awin APIs use REST + JSON and OAuth2 access tokens tied to my Awin user account. Implement token creation/refresh and store tokens securely (no hardcoding). The access token is linked to my user, not a single publisher account. :contentReference[oaicite:3]{index=3}
+- Product inventory is retrieved via Awin Product Feeds / Enhanced Feeds (feed files, not necessarily JSON). Feeds provide product attributes, URLs, etc. :contentReference[oaicite:4]{index=4}
+- Affiliate tracking links (deep links) commonly look like:
+  http(s)://www.awin1.com/cread.php?awinmid=<advertiserId>&awinaffid=<publisherId>&ued=<urlEncodedDestination>
+  Put all tracking-link construction behind a LinkBuilder abstraction and also support Awin’s Link Builder API. :contentReference[oaicite:5]{index=5}
+
+Goal
+- Every morning:
+  1) Discover advertisers I’m approved/joined for as a Publisher.
+  2) For each advertiser, download the relevant product feed (CSV/TSV, sometimes zipped), parse it, and upsert products into Postgres.
+  3) Track changes via a content hash. If unchanged, only update last_seen_at. If changed, replace tracked fields and update last_changed_at + last_updated_at.
+- Store: product URL, tracking URL, commission details, and anything useful for later AI summarization (product page URL).
+
+Data we must store per product
+- advertiser_id (merchant program id), advertiser_name (if available)
+- product identifiers: feed product id (if present), SKU (if present)
+- name/title, description (if present)
+- product_url (destination URL / product page)
+- image_url(s) (if present)
+- price + currency (if present)
+- categories (if present)
+- commission details:
+  - If feed includes commission info, store it
+  - Also store advertiser-level “baseline” commission if available via API/reporting endpoints
+  - Keep commission as both raw text and normalized numeric fields when possible
+- tracking_url:
+  - Prefer Link Builder API output if configured/available
+  - Else compute using awin1.com/cread.php pattern and mark tracking_url_source = computed
+- extra jsonb: store unmapped columns for forward compatibility
+- content_hash (SHA-256 of normalized tracked fields)
+- last_seen_at, last_changed_at, last_updated_at
+- inactive_at (if product disappears from the latest feed, optionally mark inactive)
+
+Important constraints & architecture
+- Modular: implement interfaces:
+  - IAdvertiserSource (lists approved advertisers)
+  - IProductFeedSource (downloads feed files for an advertiser)
+  - ILinkBuilder (returns tracking links)
+  - IProductRepository (Postgres upsert & queries)
+- Awin auth:
+  - Build AwinOAuthClient that acquires/refreshes access tokens per Awin docs.
+  - Read client id/secret, auth URLs, and token URLs from config.
+  - Store refresh token securely (user secrets / env vars), not in source control.
+- Handle large feeds: stream parse rows; batch writes.
+- Robust column mapping: feeds vary. Use a case-insensitive map and do not crash on missing columns.
+- Logging: Serilog. Add retry/backoff for HTTP.
+- Idempotent runs with a SyncRuns table for auditing.
+
+What to generate
+1) Solution layout
+- src/
+  - AwinFeedSync.Console (console entry)
+  - AwinFeedSync.Core (domain models, interfaces, hashing, mapping)
+  - AwinFeedSync.Infrastructure (Awin API clients, feed download/extract/parse, Postgres)
+  - AwinFeedSync.Tests (xUnit)
+- Use Microsoft.Extensions.Hosting + DI.
+
+2) Configuration model (appsettings.json + env vars)
+- AwinOAuth:
+  - ClientId
+  - ClientSecret
+  - AuthBaseUrl
+  - TokenUrl
+  - Scopes
+  - RedirectUri (if needed for auth code flow)
+- AwinPublisher:
+  - PublisherId (awinaffid)
+  - ApiBaseUrl
+- Feeds:
+  - WorkingDirectory
+  - MaxParallelDownloads (e.g. 4)
+  - BatchSize (e.g. 2000)
+  - FeedDiscoveryMode: api | manual
+  - ManualFeedListPath (fallback JSON/CSV with advertiserId + feedUrl)
+  - TreatMissingProductsAsInactive (true/false)
+  - SkipUpdateIfUnchanged (true)
+- Database:
+  - ConnectionString (Postgres)
+
+3) Awin advertiser discovery
+- Prefer Awin Publisher API calls to list the advertisers/programmes I’m joined/approved for (implement as configurable endpoint paths; add TODO with doc links).
+- If not available, support a manual advertiser list config file.
+
+4) Product feed download + parsing
+- For each advertiser:
+  - Determine feed URL(s) or feed identifiers (from API discovery or manual config).
+  - Download feed. Support zipped and plain formats.
+  - Extract and parse via CsvHelper with streaming.
+  - Flexible column mapping:
+    - Required-ish: destination/product URL, product name, advertiser id
+    - Optional: commission fields, price, currency, images, categories, sku/product id
+  - Normalize to ProductRecord and compute SHA-256 content hash over tracked fields.
+
+5) Postgres schema + migrations (choose EF Core migrations)
+Tables:
+- advertisers (advertiser_id PK, name, status, default_commission_text, updated_at)
+- products (
+    id bigserial PK,
+    advertiser_id FK,
+    product_key text,
+    feed_product_id text null,
+    sku text null,
+    product_name text null,
+    product_url text null,
+    image_url text null,
+    price numeric null,
+    currency text null,
+    category text null,
+    subcategory text null,
+    commission_text text null,
+    commission_rate numeric null,
+    tracking_url text null,
+    tracking_url_source text (api|feed|computed),
+    extra jsonb,
+    content_hash text,
+    last_seen_at timestamptz,
+    last_changed_at timestamptz,
+    last_updated_at timestamptz,
+    inactive_at timestamptz null,
+    ai_summary text null,
+    ai_summary_status text null,
+    ai_summary_updated_at timestamptz null
+  )
+Indexes:
+- unique (advertiser_id, product_key)
+- index on last_changed_at, last_seen_at, advertiser_id
+- sync_runs (run_id PK, started_at, finished_at, status, error_text, advertisers_processed, products_seen, products_changed)
+
+Upsert logic
+- ProductKey = advertiserId + (SKU if present else feed_product_id else normalized product_url)
+- If new: insert, last_changed_at = now, last_updated_at = now, last_seen_at = now
+- If exists & hash same: update last_seen_at only
+- If exists & hash different: update tracked fields + content_hash + last_changed_at/last_updated_at = now + last_seen_at = now
+- If TreatMissingProductsAsInactive:
+  after finishing advertiser feed, mark products not seen in this run as inactive (inactive_at = now)
+
+6) Tracking link generation
+- Implement ILinkBuilder with two strategies:
+  A) LinkBuilderApiLinkBuilder: calls Awin Link Builder API to generate deep links in bulk (configurable endpoint). :contentReference[oaicite:6]{index=6}
+  B) ComputedLinkBuilder: constructs:
+     https://www.awin1.com/cread.php?awinmid={advertiserId}&awinaffid={publisherId}&ued={urlEncodedDestination}
+     Store tracking_url_source = computed. :contentReference[oaicite:7]{index=7}
+- Prefer strategy A when configured; otherwise fallback to computed.
+- Include click reference support (clickref/subid) as an optional parameter that can be appended where supported; keep it configurable. :contentReference[oaicite:8]{index=8}
+
+7) CLI
+- --run-once
+- --advertiser <id> (optional)
+- --dry-run
+- --max <n> (limit advertisers for testing)
+
+8) README
+- How to get OAuth token / set env vars
+- How to run daily (Windows Task Scheduler / cron)
+- Common troubleshooting (large feeds, missing columns)
+
+9) Tests
+- Column mapping normalization
+- Hash stability
+- Change detection
+- ProductKey selection logic
+- Upsert behavior (unit test repository using Testcontainers if feasible)
+
+Implement the full solution with sane defaults and clear TODO markers where Awin-specific endpoint paths or feed discovery details must be filled based on my Awin account configuration.
