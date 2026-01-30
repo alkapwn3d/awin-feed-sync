@@ -81,9 +81,16 @@ public class ProductRepository : IProductRepository
     
     public async Task MarkMissingProductsInactiveAsync(int advertiserId, DateTime runTime, CancellationToken ct = default)
     {
-        await _context.Products
+        var productsToMark = await _context.Products
             .Where(p => p.AdvertiserId == advertiserId && p.LastSeenAt < runTime && p.InactiveAt == null)
-            .ExecuteUpdateAsync(s => s.SetProperty(p => p.InactiveAt, runTime), ct);
+            .ToListAsync(ct);
+        
+        foreach (var product in productsToMark)
+        {
+            product.InactiveAt = runTime;
+        }
+        
+        await _context.SaveChangesAsync(ct);
     }
     
     public async Task<Advertiser?> GetAdvertiserAsync(int advertiserId, CancellationToken ct = default)
