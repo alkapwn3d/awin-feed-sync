@@ -71,3 +71,4 @@ artifacts/
 *.db
 *.db-shm
 *.db-wal
+.kiro/conversations/
