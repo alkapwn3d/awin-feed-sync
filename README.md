@@ -31,9 +31,9 @@ CREATE DATABASE awin_feeds;
 
 Run migrations:
 
-```bash
-cd src/AwinFeedSync.Console
-dotnet ef database update --project ../AwinFeedSync.Infrastructure
+```cmd
+cd src\AwinFeedSync.Console
+dotnet ef database update --project ..\AwinFeedSync.Infrastructure
 ```
 
 ### 2. OAuth2 Credentials
@@ -42,8 +42,8 @@ Obtain OAuth2 credentials from your Awin account dashboard.
 
 **Option A: User Secrets (Development)**
 
-```bash
-cd src/AwinFeedSync.Console
+```cmd
+cd src\AwinFeedSync.Console
 dotnet user-secrets init
 dotnet user-secrets set "AwinOAuth:ClientId" "your-client-id"
 dotnet user-secrets set "AwinOAuth:ClientSecret" "your-client-secret"
@@ -52,11 +52,20 @@ dotnet user-secrets set "AwinPublisher:PublisherId" "your-publisher-id"
 
 **Option B: Environment Variables (Production)**
 
-```bash
-export AwinOAuth__ClientId="your-client-id"
-export AwinOAuth__ClientSecret="your-client-secret"
-export AwinPublisher__PublisherId="your-publisher-id"
-export Database__ConnectionString="Host=localhost;Database=awin_feeds;Username=postgres;Password=yourpassword"
+PowerShell:
+```powershell
+$env:AwinOAuth__ClientId="your-client-id"
+$env:AwinOAuth__ClientSecret="your-client-secret"
+$env:AwinPublisher__PublisherId="your-publisher-id"
+$env:Database__ConnectionString="Host=localhost;Database=awin_feeds;Username=postgres;Password=yourpassword"
+```
+
+Command Prompt:
+```cmd
+set AwinOAuth__ClientId=your-client-id
+set AwinOAuth__ClientSecret=your-client-secret
+set AwinPublisher__PublisherId=your-publisher-id
+set Database__ConnectionString=Host=localhost;Database=awin_feeds;Username=postgres;Password=yourpassword
 ```
 
 ### 3. Configuration File
@@ -89,45 +98,33 @@ Edit `appsettings.json`:
 
 ### Console Mode (One-Time Execution)
 
-```bash
-# Dry run - preview only, no changes
-dotnet run --project src/AwinFeedSync.Console -- --console --dry-run --max 1
+```cmd
+REM Dry run - preview only, no changes
+dotnet run --project src\AwinFeedSync.Console -- --console --dry-run --max 1
 
-# Run once - process all advertisers
-dotnet run --project src/AwinFeedSync.Console -- --console --run-once
+REM Run once - process all advertisers
+dotnet run --project src\AwinFeedSync.Console -- --console --run-once
 
-# Process specific advertiser
-dotnet run --project src/AwinFeedSync.Console -- --console --advertiser 12345
+REM Process specific advertiser
+dotnet run --project src\AwinFeedSync.Console -- --console --advertiser 12345
 
-# Limit advertisers for testing
-dotnet run --project src/AwinFeedSync.Console -- --console --max 5
+REM Limit advertisers for testing
+dotnet run --project src\AwinFeedSync.Console -- --console --max 5
 ```
 
 ### Service Mode (Continuous Operation)
 
-```bash
-# Run as background service (syncs every 6 hours)
-dotnet run --project src/AwinFeedSync.Console
+```cmd
+REM Run as background service (syncs every 6 hours)
+dotnet run --project src\AwinFeedSync.Console
 
-# Configure sync interval in appsettings.json:
-# "Service": { "SyncIntervalHours": 6 }
+REM Configure sync interval in appsettings.json:
+REM "Service": { "SyncIntervalHours": 6 }
 ```
 
 **Note:** Use `--console` flag for one-time execution. Without it, runs as a service.
 
 ## Scheduling
-
-### Linux (cron)
-
-```bash
-crontab -e
-```
-
-Add:
-
-```
-0 6 * * * cd /path/to/AwinFeedSync && /usr/bin/dotnet run --project src/AwinFeedSync.Console -- --run-once >> logs/cron.log 2>&1
-```
 
 ### Windows (Task Scheduler)
 
@@ -219,6 +216,43 @@ Ensure `ClientId`, `ClientSecret`, and `PublisherId` are correct. Check Awin API
 - [Awin Product Feeds](https://wiki.awin.com/index.php/Product_Feeds)
 - [Awin Link Builder API](https://wiki.awin.com/index.php/Link_Builder_API)
 - [Awin OAuth2 Guide](https://wiki.awin.com/index.php/OAuth_2.0)
+
+---
+
+## Linux Setup
+
+Assuming PostgreSQL is already installed and running:
+
+```bash
+# Create database
+sudo -u postgres psql -c "CREATE DATABASE awin_feeds;"
+
+# Run migrations
+cd src/AwinFeedSync.Console
+~/.dotnet/tools/dotnet-ef database update --project ../AwinFeedSync.Infrastructure
+
+# Load sample data (optional)
+PGPASSWORD=postgres psql -h localhost -U postgres -d awin_feeds -f database/sample-data.sql
+
+# Configure credentials
+dotnet user-secrets set "AwinOAuth:ClientId" "your-client-id"
+dotnet user-secrets set "AwinOAuth:ClientSecret" "your-client-secret"
+dotnet user-secrets set "AwinPublisher:PublisherId" "your-publisher-id"
+
+# Run once
+dotnet run --project src/AwinFeedSync.Console -- --console --run-once
+```
+
+### Cron Scheduling
+
+```bash
+crontab -e
+```
+
+Add:
+```
+0 6 * * * cd /path/to/affiliate-marketing && /usr/bin/dotnet run --project src/AwinFeedSync.Console -- --run-once >> logs/cron.log 2>&1
+```
 
 ## License
 

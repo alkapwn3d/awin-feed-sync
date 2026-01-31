@@ -1,3 +1,4 @@
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -5,15 +6,18 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace AwinFeedSync.Infrastructure.Migrations
 {
+    /// <inheritdoc />
     public partial class InitialCreate : Migration
     {
+        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
                 name: "advertisers",
                 columns: table => new
                 {
-                    advertiser_id = table.Column<int>(type: "integer", nullable: false),
+                    advertiser_id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     name = table.Column<string>(type: "text", nullable: false),
                     status = table.Column<string>(type: "text", nullable: false),
                     default_commission_text = table.Column<string>(type: "text", nullable: true),
@@ -107,11 +111,17 @@ namespace AwinFeedSync.Infrastructure.Migrations
                 column: "last_seen_at");
         }
 
+        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(name: "products");
-            migrationBuilder.DropTable(name: "sync_runs");
-            migrationBuilder.DropTable(name: "advertisers");
+            migrationBuilder.DropTable(
+                name: "products");
+
+            migrationBuilder.DropTable(
+                name: "sync_runs");
+
+            migrationBuilder.DropTable(
+                name: "advertisers");
         }
     }
 }
